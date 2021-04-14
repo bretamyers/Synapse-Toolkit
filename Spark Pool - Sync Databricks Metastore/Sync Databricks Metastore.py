@@ -1,5 +1,3 @@
-import os
-import sys
 from pyhive import hive
 from thrift.transport import THttpClient
 import base64
@@ -14,9 +12,9 @@ TOKEN = "dapi88bad1fae9d1351e35d388edeccf59a7"
 WORKSPACE_URL = "adb-1487981951669006.6.azuredatabricks.net:443"
 WORKSPACE_ID = "1487981951669006"
 CLUSTER_ID = "0407-160218-dory150"
+DATABASE_NAME = "testexternalmetastorenew2"
 
 conn = 'https://%s/sql/protocolv1/o/%s/%s' % (WORKSPACE_URL, WORKSPACE_ID, CLUSTER_ID)
-print(conn)
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -30,7 +28,7 @@ transport.setCustomHeaders({"Authorization": "Basic %s" % auth})
 
 cursor = hive.connect(thrift_transport=transport).cursor()
 
-cursor.execute('SHOW TABLES IN testexternalmetastorenew2',async_=True)
+cursor.execute(f'SHOW TABLES IN {DATABASE_NAME}',async_=True)
 
 pending_states = (
         hive.ttypes.TOperationState.INITIALIZED_STATE,
@@ -51,7 +49,10 @@ for index, table in enumerate(cursor.fetchall()):
             cursor.execute(f"SHOW CREATE TABLE {table[0]}.{table[1]}")
             results = cursor.fetchall()
 
-            spark.sql(f"DROP TABLE IF EXISTS {table[0]}.{table[1]}")
+            if row[1] == 'EXTERNAL':
+                spark.sql(f"DROP TABLE IF EXISTS {table[0]}.{table[1]}")
+            else:
+                spark.sql(f"DROP VIEW IF EXISTS {table[0]}.{table[1]}")
+            
             spark.sql(results[0][0])
-    
 
