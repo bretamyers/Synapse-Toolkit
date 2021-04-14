@@ -43,9 +43,10 @@ while cursor.poll().operationState in pending_states:
 print("Done. Results:")
 
 for index, table in enumerate(cursor.fetchall()):
+    print(table[1])
     cursor.execute(f"DESCRIBE FORMATTED {table[0]}.{table[1]}")
     for row in cursor.fetchall():
-        if row[0] == 'Type' and row[1] == 'EXTERNAL':
+        if row[0] == 'Type' and (row[1] == 'EXTERNAL' or row[1] == 'VIEW'):
 
             cursor.execute(f"SHOW CREATE TABLE {table[0]}.{table[1]}")
             results = cursor.fetchall()
@@ -53,6 +54,4 @@ for index, table in enumerate(cursor.fetchall()):
             spark.sql(f"DROP TABLE IF EXISTS {table[0]}.{table[1]}")
             spark.sql(results[0][0])
     
-
-
 
