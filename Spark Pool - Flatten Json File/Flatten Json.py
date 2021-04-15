@@ -3,6 +3,8 @@ parquetFilePathTarget = 'call-data_flattened/tmp1A74' #'FlattenedJson/Activities
 pipelineRunID = "789"
 storageAccountContainerSource = 'teams-data' #'landingzone' 
 storageAccountContainerTarget = 'teams-data' #'silverzone' 
+storageAccountName = 'adlsbrmyers'
+storageAccountCredential = 'UGAhJ3mcTUzADJt7byM4oHD+LDNf3yptmcXAXA+mue9U4x5zg1VXHmsSUrXfiSrrp8RH7d3Ii7IojVIaqnc+bQ=='
 
 
 import json
@@ -83,9 +85,6 @@ def _(object_: Array, *, prefix: str = '', path_separator: str) -> Object:
             path_separator=path_separator),
             object_))}
 
-
-storageAccountName = 'adlsbrmyers'
-storageAccountCredential = 'UGAhJ3mcTUzADJt7byM4oHD+LDNf3yptmcXAXA+mue9U4x5zg1VXHmsSUrXfiSrrp8RH7d3Ii7IojVIaqnc+bQ=='
 
 jsonFlattenedDatetime = datetime.datetime.now()
 
