@@ -12,6 +12,7 @@ The scripts will:
   5. Pivot the results again so we can create the target DDL that is used to create the views and tables.
   6. DDL for stat creation is also included but does not execute as part of the script since stat creation can take a long time to execute depending on data size. These should be executed in a seperate session and trimmed down to only the column used in the queries.
 
+
 Things that the script handles for you:
   1. Runs a query to get the max length of each string column and uses length for character length of the data type.
   2. Adds the 'COLLATE Latin1_General_100_BIN2_UTF8' syntax to all the string columns.
