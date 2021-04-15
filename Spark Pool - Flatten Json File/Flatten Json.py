@@ -18,6 +18,8 @@ import pandas as pd # NEED TO UPDATE THE DEFAULT pandas INSTALL WITH A MORE CURR
 import io
 import gzip
 
+# https://docs.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobclient?view=azure-python
+
 Serializable = TypeVar('Serializable', None, int, bool, float, str, dict, list, tuple)
 Array = List[Serializable]
 Object = Dict[str, Serializable]
@@ -86,15 +88,19 @@ def _(object_: Array, *, prefix: str = '', path_separator: str) -> Object:
             object_))}
 
 
+
 jsonFlattenedDatetime = datetime.datetime.now()
 
 blob_service_client = azure.storage.blob.BlobServiceClient(account_url=f"https://{storageAccountName}.blob.core.windows.net", credential=storageAccountCredential)
 
-# Read uncompressed json
-fileText = blob_service_client.get_blob_client(container=storageAccountContainerSource, blob=jsonFilePathSource).download_blob().readall()
+# Check the file extension to see if its been gzipped
+if blob_service_client.get_blob_client(container=storageAccountContainerSource, blob=jsonFilePathSource).get_blob_properties()['name'].split('/')[-1].split('.')[-1] == 'gz':
+    # Read gzip compressed json
+    fileText = gzip.decompress(blob_service_client.get_blob_client(container=storageAccountContainerSource, blob=jsonFilePathSource).download_blob().readall())
+else:
+    # Read uncompressed json
+    fileText = blob_service_client.get_blob_client(container=storageAccountContainerSource, blob=jsonFilePathSource).download_blob().readall()
 
-# Read gzip compressed json
-# fileText = gzip.decompress(blob_service_client.get_blob_client(container=storageAccountContainerSource, blob=jsonFilePathSource).download_blob().readall())
 
 jsonObj = json.loads(f'{{"PipelineRunID": "{pipelineRunID}", "FlattenedDateTime": "{jsonFlattenedDatetime}", "Data": {fileText.decode("utf-8")}}}')
 flat = flatten(jsonObj)
@@ -104,5 +110,6 @@ output = io.BytesIO()
 df.to_parquet(output)
 blob_client = blob_service_client.get_blob_client(container=storageAccountContainerTarget, blob=f'{parquetFilePathTarget}_{jsonFlattenedDatetime.strftime("%Y%m%d_%H%M%S")}.parquet')
 blob_client.upload_blob(output.getvalue())
+    
     
     
