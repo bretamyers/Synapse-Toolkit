@@ -3,7 +3,6 @@ from thrift.transport import THttpClient
 import base64
 import ssl
 
-
 ## Included example of cluster JDBC connection from Databricks to show
 ## how to parse the string into the correct parameters
 #jdbc:spark://adb-1487981951669006.6.azuredatabricks.net:443/default;transportMode=http;ssl=1;httpPath=sql/protocolv1/o/1487981951669006/0407-160218-dory150;AuthMech=3;UID=token;PWD=<personal-access-token>
@@ -14,32 +13,20 @@ WORKSPACE_ID = "1487981951669006"
 CLUSTER_ID = "0407-160218-dory150"
 DATABASE_NAME = "testexternalmetastorenew2"
 
-conn = 'https://%s/sql/protocolv1/o/%s/%s' % (WORKSPACE_URL, WORKSPACE_ID, CLUSTER_ID)
-
 ssl._create_default_https_context = ssl._create_unverified_context
-
 transport = THttpClient.THttpClient(conn)
-
 auth = "token:%s" % TOKEN
-
 auth = base64.standard_b64encode(auth.encode()).decode()
-
 transport.setCustomHeaders({"Authorization": "Basic %s" % auth})
 
+#Create the database in Synapse spark pool if it does not exist
+spark.sql(f'CREATE DATABASE IF NOT EXISTS {DATABASE_NAME}')
+
+conn = 'https://%s/sql/protocolv1/o/%s/%s' % (WORKSPACE_URL, WORKSPACE_ID, CLUSTER_ID)
 cursor = hive.connect(thrift_transport=transport).cursor()
+cursor.execute(f'SHOW TABLES IN {DATABASE_NAME}')
 
-cursor.execute(f'SHOW TABLES IN {DATABASE_NAME}',async_=True)
-
-pending_states = (
-        hive.ttypes.TOperationState.INITIALIZED_STATE,
-        hive.ttypes.TOperationState.PENDING_STATE,
-        hive.ttypes.TOperationState.RUNNING_STATE)
-
-while cursor.poll().operationState in pending_states:
-    print("Pending...")
-
-print("Done. Results:")
-
+#Loop through the external tables/views found in Azure Databricks and create them in Syanpse spark pools
 for index, table in enumerate(cursor.fetchall()):
     print(table[1])
     cursor.execute(f"DESCRIBE FORMATTED {table[0]}.{table[1]}")
