@@ -137,6 +137,9 @@ FROM
 				,CASE DATA_TYPE
 					WHEN 'int' THEN ''
 					WHEN 'bigint' THEN ''
+					WHEN 'smallint' THEN ''
+					WHEN 'tinyint' THEN ''
+					WHEN 'bit' THEN ''
 					WHEN 'decimal' THEN '(' + CAST(numeric_precision as VARCHAR) + ', ' + CAST(numeric_scale as VARCHAR) + ')'
 					WHEN 'numeric' THEN '(' + CAST(numeric_precision as VARCHAR) + ', ' + CAST(numeric_scale as VARCHAR) + ')'
 					WHEN 'datetime2' THEN '(' + CAST(DATETIME_PRECISION as VARCHAR) + ')'
@@ -145,6 +148,9 @@ FROM
 				,CONCAT(c.COLUMN_NAME, ' ', UPPER(DATA_TYPE), ' ', CASE DATA_TYPE
 					WHEN 'int' THEN ''
 					WHEN 'bigint' THEN ''
+					WHEN 'smallint' THEN ''
+					WHEN 'tinyint' THEN ''
+					WHEN 'bit' THEN ''
 					WHEN 'decimal' THEN '(' + CAST(numeric_precision as VARCHAR) + ', ' + CAST(numeric_scale as VARCHAR) + ')'
 					WHEN 'numeric' THEN '(' + CAST(numeric_precision as VARCHAR) + ', ' + CAST(numeric_scale as VARCHAR) + ')'
 					WHEN 'datetime2' THEN '(' + CAST(DATETIME_PRECISION as VARCHAR) + ')'

@@ -34,6 +34,11 @@ JOIN sys.external_data_sources AS ds
 ON ds.data_source_id = a.data_source_id
 WHERE a.name NOT LIKE '%_OPTIMIZED'
 
+--Example #table values
+-- INSERT INTO #tables (SchemaName, TableName, DataSourceName, DataSourcePath, FolderPath)
+-- VALUES
+-- ('dbo', 'table1', 'ds_adlsbrmyers', '/tpc/tpcds/SourceFiles_001TB_parquet/call_center/part-00000-tid-4316535747806561780-0ef97876-af8f-424a-ab4a-649f6c17b34d-31024-1-c000.snappy.parquet', 'https://adlsbrmyers.dfs.core.windows.net/tpc/tpcds/SourceFiles_001TB_parquet/call_center/part-00000-tid-4316535747806561780-0ef97876-af8f-424a-ab4a-649f6c17b34d-31024-1-c000.snappy.parquet')
+
 
 --Display the list of tables to be created
 SELECT *
@@ -142,6 +147,9 @@ FROM
 				,CASE DATA_TYPE
 					WHEN 'int' THEN ''
 					WHEN 'bigint' THEN ''
+					WHEN 'smallint' THEN ''
+					WHEN 'tinyint' THEN ''
+					WHEN 'bit' THEN ''
 					WHEN 'decimal' THEN '(' + CAST(NUMERIC_PRECISION as VARCHAR) + ', ' + CAST(NUMERIC_SCALE as VARCHAR) + ')'
 					WHEN 'numeric' THEN '(' + CAST(NUMERIC_PRECISION as VARCHAR) + ', ' + CAST(NUMERIC_SCALE as VARCHAR) + ')'
 					WHEN 'datetime2' THEN '(' + CAST(DATETIME_PRECISION as VARCHAR) + ')'
@@ -150,6 +158,9 @@ FROM
 				,CONCAT(c.COLUMN_NAME, ' ', UPPER(DATA_TYPE), ' ', CASE DATA_TYPE
 					WHEN 'int' THEN ''
 					WHEN 'bigint' THEN ''
+					WHEN 'smallint' THEN ''
+					WHEN 'tinyint' THEN ''
+					WHEN 'bit' THEN ''
 					WHEN 'decimal' THEN '(' + CAST(NUMERIC_PRECISION as VARCHAR) + ', ' + CAST(NUMERIC_SCALE as VARCHAR) + ')'
 					WHEN 'numeric' THEN '(' + CAST(NUMERIC_PRECISION as VARCHAR) + ', ' + CAST(NUMERIC_SCALE as VARCHAR) + ')'
 					WHEN 'datetime2' THEN '(' + CAST(DATETIME_PRECISION as VARCHAR) + ')'
