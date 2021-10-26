@@ -24,11 +24,15 @@ CREATE TABLE #tables
 	,TableName NVARCHAR(100)
 	,FolderPath NVARCHAR(1000)
 )
+;
+
+DECLARE @Debug INT = 1
 
 --Enter the tables schema, name, and path to files for the views to be created over
 INSERT INTO #tables VALUES 
- ('dbo', 'TableA', 'https://adlsbrmyers.dfs.core.windows.net/landingzone/BAMStocksDB/dm/DimStockTicker/20210204/DimStockTicker_20210204_132033.parquet')
-,('dbo', 'TableB', 'https://adlsbrmyers.dfs.core.windows.net/tpc/tpcds/SourceFiles_001GB_parquet/catalog_sales/part-00000-tid-8752900334898172838-ee1efabf-9b0b-4cd0-9140-a8a6fae3d8a1-777-1-c000.snappy.parquet')
+ ('dbo', 'vwTableA', 'https://adlsbrmyers.dfs.core.windows.net/landingzone/BAMStocksDB/dm/DimStockTicker/20210204/DimStockTicker_20210204_132033.parquet')
+,('dbo', 'vwTableB', 'https://adlsbrmyers.dfs.core.windows.net/tpc/tpcds/SourceFiles_001GB_parquet/catalog_sales/part-00000-tid-8752900334898172838-ee1efabf-9b0b-4cd0-9140-a8a6fae3d8a1-777-1-c000.snappy.parquet')
+,('dbo', 'vwTableC', 'https://adlsbrmyers.dfs.core.windows.net/tpc/tpcds/SourceFiles_001GB_parquet/catalog_sales/part-00000-tid-8752900334898172838-ee1efabf-9b0b-4cd0-9140-a8a6fae3d8a1-777-1-c000.snappy.parquet')
 
 
 --Display the list of tables to be created
@@ -37,9 +41,21 @@ FROM #tables
 
 
 
+IF OBJECT_ID('tempdb..#CreateViewsDDL') IS NOT NULL
+	DROP TABLE #CreateViewsDDL
+;
+
+CREATE TABLE #CreateViewsDDL
+(
+	SchemaName NVARCHAR(100)
+	,ViewName NVARCHAR(100)
+	,ViewDDL NVARCHAR(MAX)
+)
+;
+
 IF OBJECT_ID('tempdb..#CreateStatisticsDDL') IS NOT NULL
 	DROP TABLE #CreateStatisticsDDL
-GO
+;
 
 CREATE TABLE #CreateStatisticsDDL
 (
@@ -47,7 +63,7 @@ CREATE TABLE #CreateStatisticsDDL
 	,TableName NVARCHAR(100)
 	,StatisticsDDL NVARCHAR(MAX)
 )
-GO
+;
 
 
 DECLARE @cnt INT = 1
@@ -162,8 +178,15 @@ FROM
 	) AS a
 
 	--SELECT @createFinalView
-	EXEC (@createFinalView)
+	INSERT INTO #CreateViewsDDL
+	SELECT @SchemaName, @TableName, @createFinalView
+	;
 
+	--IF @Debug = 0
+	--BEGIN
+	--	EXEC ('DROP VIEW IF EXISTS ' + @SchemaName + @TableName)
+	--	EXEC (@createFinalView)
+	--END
 
 	--Stats for views
 	INSERT INTO #CreateStatisticsDDL
@@ -173,6 +196,9 @@ FROM
 	SET @cnt = @cnt + 1
 END
 
+
+SELECT *
+FROM #CreateViewsDDL
 
 --Create statistics statements that can be ran later to improve performance
 --Note, this statements could take a long time to run if all are executed and the data size is large

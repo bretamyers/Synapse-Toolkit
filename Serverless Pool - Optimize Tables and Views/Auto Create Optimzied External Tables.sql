@@ -48,7 +48,7 @@ IF OBJECT_ID('tempdb..#CreateStatisticsDDL') IS NOT NULL
 	DROP TABLE #CreateStatisticsDDL
 GO
 
-CREATE TABLE #CreateStatisticsDDL
+CREATE TABLE #CreateStatisticsDDL 
 (
 	SchemaName NVARCHAR(100)
 	,TableName NVARCHAR(100)
@@ -171,8 +171,8 @@ FROM
 		ON a.COLUMN_NAME = c.COLUMN_NAME
 	) AS a
 
-	--SELECT @createFinalTable
-	EXEC (@createFinalTable)
+	SELECT @createFinalTable
+	--EXEC (@createFinalTable)
 
 	--Stats for tables
 	INSERT INTO #CreateStatisticsDDL
