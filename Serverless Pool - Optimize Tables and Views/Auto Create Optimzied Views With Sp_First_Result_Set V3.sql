@@ -16,11 +16,9 @@ CREATE TABLE #tables
 
 --Enter the tables schema, name, and path to files for the views to be created over
 INSERT INTO #tables (SchemaName, TableName, FolderPath) VALUES 
-('stagingTPC', 'Supplier1', 'https://soeenterprisedatalake.dfs.core.windows.net/curated/TPC/Snowflake/TPCH_SF10/REGION/*.parquet')
-,('stagingTPC', 'Supplier2', 'https://soeenterprisedatalake.dfs.core.windows.net/curated/TPC/Snowflake/TPCH_SF10/REGION/*.parquet')
-,('stagingTPC', 'select', 'https://soeenterprisedatalake.dfs.core.windows.net/curated/TPC/Snowflake/TPCH_SF10/REGION/*.parquet')
+ --('dbo', 'fact_data', 'https://storageaccount.dfs.core.windows.net/container/*.parquet')
+('dbo', 'fact_data', 'abfss://tpc@adlsbrmyers.dfs.core.windows.net/tpcds/SourceFiles_001GB_parquet/call_center/*.parquet')
 ;
-
 
 
 UPDATE	a
@@ -43,6 +41,8 @@ CREATE TABLE #ServerlessDDL
 	,CreateTableStatsDDL NVARCHAR(MAX)
 	,CreateViewDDL NVARCHAR(MAX)
 	,CreateViewStatsDDL NVARCHAR(MAX)
+	,CreateDedicatedPoolTableDDL NVARCHAR(MAX)
+	,CreateDedicatedPoolStatsDDL NVARCHAR(MAX)
 )
 ;
 
@@ -125,7 +125,7 @@ BEGIN
 			,@GetColumnList = STRING_AGG(CONVERT(NVARCHAR(MAX), QUOTENAME([name])), ',')
 	FROM
 	(
-		SELECT	CASE WHEN system_type_name LIKE ('%char%') OR system_type_name LIKE 'varbinary%' THEN CONCAT('COALESCE(NULLIF(MAX(LEN(', QUOTENAME([name]), ')), 0), 1) AS ', QUOTENAME([name])) ELSE CONCAT('SUM(0) AS ', QUOTENAME([name])) END AS ColumnMaxLength
+		SELECT	CASE WHEN system_type_name LIKE ('%char%') OR system_type_name LIKE 'varbinary%' THEN CONCAT('COALESCE(NULLIF(MAX(DATALENGTH(', QUOTENAME([name]), ')), 0), 1) AS ', QUOTENAME([name])) ELSE CONCAT('SUM(0) AS ', QUOTENAME([name])) END AS ColumnMaxLength
 				,[name]
 		FROM #InformationSchemaTempTable
 	) AS a
@@ -152,6 +152,8 @@ BEGIN
 	)
 	;
 
+	SELECT @sqlUnpivot
+
 	INSERT INTO #tmpBus EXEC (@sqlUnpivot)
 
 	DROP TABLE IF EXISTS #tmpFinal;
@@ -160,20 +162,26 @@ BEGIN
 		table_name NVARCHAR(1000)
 		,column_name NVARCHAR(1000)
 		,DataType NVARCHAR(1000)
-		,ColumnFullDefinition NVARCHAR(1000)
-	)
+		,ColumnFullDefinitionServerless NVARCHAR(1000)
+		,ColumnFullDefinitionDedicated NVARCHAR(1000)	)
 	;
 
 	INSERT INTO #tmpFinal
 	SELECT		@TableName AS table_name
 				,c.[name] AS column_name
 				,UPPER(TYPE_NAME(c.system_type_id)) AS DataType
-				,CONCAT(QUOTENAME(c.[name]), ' '
-					,CASE WHEN TYPE_NAME(c.system_type_id) IN ('int', 'bigint', 'smallint', 'tinyint', 'bit', 'decimal', 'numeric', 'float', 'real', 'datetime2', 'date') 
+				,CONCAT(c.[name], ' '
+					,CASE WHEN TYPE_NAME(c.system_type_id) IN ('int', 'bigint', 'smallint', 'tinyint', 'bit', 'decimal', 'numeric', 'float', 'datetime2', 'date') 
 						THEN UPPER(c.system_type_name)
 						ELSE CONCAT(UPPER(TYPE_NAME(c.system_type_id)), '(', a.DATATYPE_MAX, ') COLLATE Latin1_General_100_BIN2_UTF8')
 					END
-					) AS ColumnFullDefinition
+					) AS ColumnFullDefinitionServerless
+				,CONCAT(c.[name], ' '
+					,CASE WHEN TYPE_NAME(c.system_type_id) IN ('int', 'bigint', 'smallint', 'tinyint', 'bit', 'decimal', 'numeric', 'float', 'datetime2', 'date') 
+						THEN UPPER(c.system_type_name)
+						ELSE CONCAT(UPPER(TYPE_NAME(c.system_type_id)), '(', a.DATATYPE_MAX, ')')
+					END
+					) AS ColumnFullDefinitionDedicated
 	FROM #InformationSchemaTempTable AS c
 	JOIN #tmpBus AS a
 	ON a.COLUMN_NAME = c.[name]
@@ -181,38 +189,45 @@ BEGIN
 	OFFSET 0 ROWS
 	;
 
-	DECLARE @createTableDDL NVARCHAR(MAX)
-	DECLARE @createTableStatsDDL NVARCHAR(MAX)
-	DECLARE @createViewDDL NVARCHAR(MAX)
-	DECLARE @createViewStatsDDL NVARCHAR(MAX)
+	DECLARE @createServerlessTableDDL NVARCHAR(MAX)
+	DECLARE @createServerlessTableStatsDDL NVARCHAR(MAX)
+	DECLARE @createServerlessViewDDL NVARCHAR(MAX)
+	DECLARE @createServerlessViewStatsDDL NVARCHAR(MAX)
+	DECLARE @createDedicatedPoolTableDDL NVARCHAR(MAX)
+	DECLARE @createDedicatedPoolStatsDDL NVARCHAR(MAX)
 	DECLARE @openrowsetValue NVARCHAR(MAX)
 	DECLARE @DataSourceName NVARCHAR(MAX) = (SELECT CONCAT('ds_', SUBSTRING(FolderPath, CHARINDEX('//', FolderPath)+2, (CHARINDEX('.',FolderPath)-9))) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceDefinition NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, 0, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourcePath NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2, LEN(FolderPath)) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceCreateDDL NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS (SELECT * FROM sys.external_data_sources WHERE name = ''', @DataSourceName, ''') CREATE EXTERNAL DATA SOURCE [', @DataSourceName, '] WITH (LOCATION   = ''', @DataSourceDefinition, ''')', ''))
 	DECLARE @FileFormatCreateDDL NVARCHAR(MAX) = 'IF NOT EXISTS (SELECT * FROM sys.external_file_formats WHERE name = ''SynapseParquetFormat'') CREATE EXTERNAL FILE FORMAT [SynapseParquetFormat] WITH ( FORMAT_TYPE = PARQUET)'
-	DECLARE @CreateSchema NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS(SELECT 1 FROM sys.schemas WHERE [name] = ''', @SchemaName, ''') EXEC(''CREATE SCHEMA ', QUOTENAME(@SchemaName), ''');'))
+	DECLARE @CreateSchema NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS(SELECT 1 FROM sys.schemas WHERE [name] = ''', @SchemaName, ''') EXEC(''CREATE SCHEMA ', @SchemaName, ''');'))
 
-	SELECT	 @createTableDDL = CONCAT('CREATE EXTERNAL TABLE ', QUOTENAME(@SchemaName), '.', QUOTENAME(@TableName), ' (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinition), ','), ') WITH ( LOCATION = ''', @DataSourcePath, ''', DATA_SOURCE = [', @DataSourceName, '], FILE_FORMAT = [SynapseParquetFormat])')
-			,@createTableStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('CREATE STATISTICS stat_', column_name, ' ON ', QUOTENAME(@Schemaname), '.', QUOTENAME(@TableName), ' (', QUOTENAME(column_name), ') WITH FULLSCAN, NORECOMPUTE')), ';')
-			,@createViewDDL = CONCAT('CREATE VIEW ', QUOTENAME(@SchemaName), '.vw', @TableName, ' AS SELECT * FROM OPENROWSET(BULK ''', @FolderPath, ''' , FORMAT=''PARQUET'') WITH (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinition), ','), ') AS r')
-			,@openrowsetValue = CONCAT('FROM OPENROWSET(BULK ''''', @FolderPath, ''''', FORMAT=''''PARQUET'''') WITH (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinition), ','))
+	SELECT	 @createServerlessTableDDL = CONCAT('CREATE EXTERNAL TABLE ', @SchemaName, '.', @TableName, ' (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','), ') WITH ( LOCATION = ''', @DataSourcePath, ''', DATA_SOURCE = [', @DataSourceName, '], FILE_FORMAT = [SynapseParquetFormat])')
+			,@createServerlessTableStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('CREATE STATISTICS stat_', column_name, ' ON ', @Schemaname, '.', @TableName, ' (', column_name, ') WITH FULLSCAN, NORECOMPUTE')), ';')
+			,@createServerlessViewDDL = CONCAT('CREATE VIEW ', @SchemaName, '.vw', @TableName, ' AS SELECT * FROM OPENROWSET(BULK ''', @FolderPath, ''' , FORMAT=''PARQUET'') WITH (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','), ') AS r')
+			,@openrowsetValue = CONCAT('FROM OPENROWSET(BULK ''''', @FolderPath, ''''', FORMAT=''''PARQUET'''') WITH (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','))
+			,@createDedicatedPoolTableDDL = CONCAT ('CREATE TABLE [' ,@SchemaName ,'].[' ,@TableName ,'] (' ,STRING_AGG(ColumnFullDefinitionDedicated, ',') ,') WITH ( DISTRIBUTION = ROUND_ROBIN, HEAP)')
+			,@createDedicatedPoolStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('CREATE STATISTICS stat_', column_name, ' ON ', @Schemaname, '.', @TableName, ' (', column_name, ') WITH FULLSCAN')), ';')
 	FROM #tmpFinal
 	;
 
-	SELECT @createViewStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('EXEC sys.sp_create_openrowset_statistics N''SELECT ', QUOTENAME(column_name), ' ', @openrowsetValue, ') AS r''')), ';')
+	SELECT @createServerlessViewStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('EXEC sys.sp_create_openrowset_statistics N''SELECT ', column_name, ' ', @openrowsetValue, ') AS r''')), ';')
 	FROM #tmpFinal
 	;
 
 	INSERT INTO #ServerlessDDL VALUES 
 		(@SchemaName, @TableName
-		,CONCAT(@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.tables WHERE TABLE_SCHEMA = ''', @SchemaName, ''' AND TABLE_NAME = ''', @TableName, ''') DROP EXTERNAL TABLE ', QUOTENAME(@SchemaName), '.', QUOTENAME(@TableName), '; ', @createTableDDL, ';')
-		,@createTableStatsDDL
-		,CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.vw', @TableName, ''', ''V'') IS NOT NULL DROP VIEW ', @SchemaName, '.vw', @TableName, '; EXEC(''', REPLACE(@createViewDDL, '''', ''''''), ''');')
-		,@createViewStatsDDL
+		,CONCAT(@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.tables WHERE TABLE_SCHEMA = ''', @SchemaName, ''' AND TABLE_NAME = ''', @TableName, ''') DROP EXTERNAL TABLE ', @SchemaName, '.', @TableName, '; ', @createServerlessTableDDL, ';')
+		,@createServerlessTableStatsDDL
+		,CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.vw', @TableName, ''', ''V'') IS NOT NULL DROP VIEW ', @SchemaName, '.vw', @TableName, '; EXEC(''', REPLACE(@createServerlessViewDDL, '''', ''''''), ''');')
+		,@createServerlessViewStatsDDL
+		,CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.', @TableName, ''', ''U'') IS NOT NULL DROP TABLE ', @SchemaName, '.', @TableName, ';', @createDedicatedPoolTableDDL)
+		,@createDedicatedPoolStatsDDL
 		)
 
 	SET @cnt = @cnt + 1
 END
 
 SELECT * FROM #ServerlessDDL
+

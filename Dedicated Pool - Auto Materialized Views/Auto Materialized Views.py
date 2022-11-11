@@ -28,7 +28,7 @@ if __name__ == "__main__":
     DMVQuery = """SELECT MIN(request_id) AS RequestId, SUM(total_elapsed_time) AS TotalElapsedTime, [command] AS SqlCommand
 FROM
 (
-	SELECT r.total_elapsed_time, r.[command], r.request_id
+	SELECT r.total_elapsed_time, COALESCE(r.[command2], r.[command]) AS [command], r.request_id
 	FROM sys.dm_pdw_exec_requests AS r
 	JOIN sys.dm_pdw_exec_sessions AS s
 	ON s.session_id = r.session_id
