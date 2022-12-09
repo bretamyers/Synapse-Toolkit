@@ -1,4 +1,30 @@
 
+/*
+	A helper script that will dynamically create DDL statements for various artifacts within Synapse.
+	This script only generates the DDL for parquet files!!
+
+	ARTIFACTS GENERATED:
+		1. Synapse serverless pool external table definition
+		2. Synapse serverless pool external table stats (per column)
+		3. Synapse serverless pool view definition
+		4. Synapse serverless pool veiw stats (per column)
+		5. Synapse dedicated pool external table definition
+		6. Synapse dedicated pool external table stats (per column)
+		7. Azure Data Explorer table definition
+
+	HOW TO USE:
+		1. Connect to the Synapse serverless endpoint and make sure the user executing has the appropriate RBAC or ACLs on the storage account(s)
+		2. Update the the INSERT INTO #tables definition below to include the tables and the paths to the tables files. 
+		3. Execute the script. The execution may take some time depending on how much data it has to scan.
+		4. Copy the DDL statement and format using a t-sql formatter like poor sql (https://poorsql.com/). There's a notepad++ and VSCode extension for poorsql as well.
+		5. Make any adjustments to scripts as necessary. 
+			Examples: 
+				The serverless views won't contain the hive partition paths (filepath()) and will need to be added.
+				The stats columns will generate DDL to create stats for every column on a table whereas you may only want/need to create stats on a handful of the columns.
+				String column data lengths if you ran the script on a subset of the data and not the full dataset.
+		6. Run the updated DDL
+*/
+
 
 IF OBJECT_ID('tempdb..#tables') IS NOT NULL
 	DROP TABLE #tables
@@ -13,7 +39,10 @@ CREATE TABLE #tables
 )
 ;
 
---Enter the tables schema, name, and path to files for the views to be created over
+/*
+	Enter the tables schema, name, and path to files for the views to be created over
+	!!The files must be parquet files!!
+*/
 INSERT INTO #tables (SchemaName, TableName, FolderPath) VALUES 
 ('dbo', 'fact_data', 'abfss://tpc@adlsbrmyers.dfs.core.windows.net/tpcds/SourceFiles_001GB_parquet/call_center/*.parquet')
 ;
@@ -229,7 +258,6 @@ BEGIN
 	DECLARE @createDedicatedPoolStatsDDL NVARCHAR(MAX)
 	DECLARE @createDataExplorerDDL NVARCHAR(MAX)
 	DECLARE @openrowsetValue NVARCHAR(MAX)
-	--DECLARE @DataSourceName NVARCHAR(MAX) = (SELECT CONCAT('ds_', SUBSTRING(FolderPath, CHARINDEX('//', FolderPath)+2, (CHARINDEX('.',FolderPath)-9))) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceName NVARCHAR(MAX) = (
 			SELECT CASE WHEN LEFT(FolderPath, 5) = 'abfss' THEN CONCAT('ds_'
 				,SUBSTRING(FolderPath, CHARINDEX('@', FolderPath)+1, (CHARINDEX('.', FolderPath)-CHARINDEX('@', FolderPath)-1))
@@ -245,9 +273,9 @@ BEGIN
 			FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceDefinition NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, 0, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourcePath NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2, LEN(FolderPath)) FROM #tables WHERE RN = @cnt)
-	DECLARE @DataSourceCreateDDL NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS (SELECT * FROM sys.external_data_sources WHERE name = ''', @DataSourceName, ''') CREATE EXTERNAL DATA SOURCE [', @DataSourceName, '] WITH (LOCATION   = ''', @DataSourceDefinition, ''')', ''))
-	DECLARE @FileFormatCreateDDL NVARCHAR(MAX) = 'IF NOT EXISTS (SELECT * FROM sys.external_file_formats WHERE name = ''SynapseParquetFormat'') CREATE EXTERNAL FILE FORMAT [SynapseParquetFormat] WITH ( FORMAT_TYPE = PARQUET)'
-	DECLARE @CreateSchema NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS(SELECT 1 FROM sys.schemas WHERE [name] = ''', @SchemaName, ''') EXEC(''CREATE SCHEMA ', @SchemaName, ''');'))
+	DECLARE @DataSourceCreateDDL NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS (SELECT 1 FROM sys.external_data_sources WHERE name = ''', @DataSourceName, ''') CREATE EXTERNAL DATA SOURCE [', @DataSourceName, '] WITH (LOCATION   = ''', @DataSourceDefinition, ''')', ''))
+	DECLARE @FileFormatCreateDDL NVARCHAR(MAX) = 'IF NOT EXISTS (SELECT 1 FROM sys.external_file_formats WHERE name = ''SynapseParquetFormat'') CREATE EXTERNAL FILE FORMAT [SynapseParquetFormat] WITH ( FORMAT_TYPE = PARQUET)'
+	DECLARE @CreateSchema NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS(SELECT 1 FROM sys.schemas WHERE [name] = ''', REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''), ''') EXEC(''CREATE SCHEMA ', REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''), ''');'))
 
 	SELECT	 @createServerlessTableDDL = CONCAT('CREATE EXTERNAL TABLE ', @SchemaName, '.', @TableName, ' (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','), ') WITH ( LOCATION = ''', @DataSourcePath, ''', DATA_SOURCE = [', @DataSourceName, '], FILE_FORMAT = [SynapseParquetFormat])')
 			,@createServerlessTableStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('CREATE STATISTICS stat_', column_name, ' ON ', @Schemaname, '.', @TableName, ' (', column_name, ') WITH FULLSCAN, NORECOMPUTE')), ';')
@@ -265,7 +293,7 @@ BEGIN
 
 	INSERT INTO #ServerlessDDL VALUES 
 		(@SchemaName, @TableName
-		,CONCAT(@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.tables WHERE TABLE_SCHEMA = ''', @SchemaName, ''' AND TABLE_NAME = ''', @TableName, ''') DROP EXTERNAL TABLE ', @SchemaName, '.', @TableName, '; ', @createServerlessTableDDL, ';')
+		,CONCAT(@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.tables WHERE TABLE_SCHEMA = ''', REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''), ''' AND TABLE_NAME = ''', REPLACE(REPLACE(@TableName, ']', ''), '[', ''), ''') DROP EXTERNAL TABLE ', @SchemaName, '.', @TableName, '; ', @createServerlessTableDDL, ';')
 		,@createServerlessTableStatsDDL
 		,CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.vw', @TableName, ''', ''V'') IS NOT NULL DROP VIEW ', @SchemaName, '.vw', @TableName, '; EXEC(''', REPLACE(@createServerlessViewDDL, '''', ''''''), ''');')
 		,@createServerlessViewStatsDDL
