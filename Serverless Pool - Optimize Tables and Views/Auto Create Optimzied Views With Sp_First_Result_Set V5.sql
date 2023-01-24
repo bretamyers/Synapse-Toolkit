@@ -8,9 +8,11 @@
 		2. Synapse serverless pool external table stats (per column)
 		3. Synapse serverless pool view definition
 		4. Synapse serverless pool veiw stats (per column)
-		5. Synapse dedicated pool external table definition
-		6. Synapse dedicated pool external table stats (per column)
-		7. Azure Data Explorer table definition
+		5. Syanpse dedicated pool syntax for ingesting data with polybase "native"
+		6. Syanpse dedicated pool syntax for ingesting data with the copy command
+		7. Synapse dedicated pool external table definition
+		8. Synapse dedicated pool external table stats (per column)
+		9. Azure Data Explorer table definition
 
 	HOW TO USE:
 		1. Connect to the Synapse serverless endpoint and make sure the user executing has the appropriate RBAC or ACLs on the storage account(s)
