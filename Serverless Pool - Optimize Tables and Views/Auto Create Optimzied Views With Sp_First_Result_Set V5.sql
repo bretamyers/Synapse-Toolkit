@@ -330,14 +330,12 @@ BEGIN
 			,@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 1 AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, ''' AND [name] = ''', @TableNameNoBrackets, '_ext'') DROP EXTERNAL TABLE ', @SchemaNameNoBrackets, '.', @TableNameNoBrackets, '_ext; ', @creatDedicatedExternalTableDDL, ';'
 			,'IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 0 AND [name] = ''', @TableNameNoBrackets, ''' AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, '''
 			) DROP TABLE ', @SchemaName, '.', @TableName, '; CREATE TABLE ', @SchemaName, '.', @TableName, ' WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX) AS SELECT * FROM ', @SchemaName, '.[', @TableNameNoBrackets, '_ext];')
-		
 		,/*DedicatedIngestTableCopyIntoDDL*/ CONCAT(@CreateSchema
 			,'IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 0 AND [name] = ''', @TableNameNoBrackets, ''' AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, '''
 			) DROP TABLE ', @SchemaName, '.', @TableName, '; ', @createDedicatedPoolTableDDL
 			,'; COPY INTO ', @SchemaName, '.', @TableName
 				,' FROM ''', @FolderPathHttps, ''' WITH (FILE_TYPE = ''PARQUET'',MAXERRORS = 0,COMPRESSION = ''snappy'',IDENTITY_INSERT = ''OFF'',CREDENTIAL = (IDENTITY = ''Managed Identity'')
 			);')
-		
 		,/*DedicatedCreateTableDDL*/ CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.', @TableName, ''', ''U'') IS NOT NULL DROP TABLE ', @SchemaName, '.', @TableName, ';', @createDedicatedPoolTableDDL)
 		,/*@createDedicatedPoolStatsDDL*/ @createDedicatedPoolStatsDDL
 		,/*DataExplorerCreateTableDDL*/ @createDataExplorerDDL
