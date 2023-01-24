@@ -285,6 +285,18 @@ BEGIN
 			ELSE FolderPath
 			END
 		FROM #tables WHERE RN = @cnt)
+	DECLARE @FolderPathAbfss NVARCHAR(MAX) = (
+		SELECT CASE WHEN LEFT(FolderPath, 5) = 'https' THEN CONCAT('abfss://'
+			,SUBSTRING(@FolderPath, CHARINDEX('windows.net/', @FolderPath)+LEN('windows.net/'), CHARINDEX('/', SUBSTRING(@FolderPath, CHARINDEX('windows.net/', @FolderPath)+LEN('windows.net/'), LEN(@FolderPath)))-1)
+			,'@'
+			,SUBSTRING(@FolderPath, CHARINDEX('https://', @FolderPath)+LEN('https://'), (CHARINDEX('.', @FolderPath)-CHARINDEX('https://', @FolderPath)-LEN('https://')))
+			,'.dfs.core.windows.net'
+			,SUBSTRING(@FolderPath, CHARINDEX('windows.net/', @FolderPath)+LEN('windows.net/')+LEN(SUBSTRING(@FolderPath, CHARINDEX('windows.net/', @FolderPath)+LEN('windows.net/'), CHARINDEX('/', SUBSTRING(@FolderPath, CHARINDEX('windows.net/', @FolderPath)+LEN('windows.net/'), LEN(@FolderPath)))-1))
+			,LEN(@FolderPath))
+			)
+			ELSE FolderPath
+			END
+		FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceDefinition NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, 0, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourcePath NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2, LEN(FolderPath)) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceCreateDDL NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS (SELECT 1 FROM sys.external_data_sources WHERE name = ''', @DataSourceName, ''') CREATE EXTERNAL DATA SOURCE [', @DataSourceName, '] WITH (LOCATION   = ''', @DataSourceDefinition, ''' /*,CREDENTIAL = dsc_managed_identity)*/ )', ''))
@@ -313,7 +325,7 @@ BEGIN
 		,/*ServerlessCreateViewDDL*/ CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.vw', @TableName, ''', ''V'') IS NOT NULL DROP VIEW ', @SchemaName, '.vw', @TableName, '; EXEC(''', REPLACE(@createServerlessViewDDL, '''', ''''''), ''');')
 		,/*ServerlessCreateViewStatsDDL*/ @createServerlessViewStatsDDL
 		,/*DedicatedIngestTablePolybaseDDL*/ CONCAT('/*IF NOT EXISTS (SELECT 1 FROM sys.database_scoped_credentials WHERE [name] = ''dsc_managed_identity'') CREATE DATABASE SCOPED CREDENTIAL dsc_managed_identity WITH IDENTITY = ''MANAGED IDENTITY'';*/'
-			,@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external WHERE SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, ''' AND [name] = ''', @TableNameNoBrackets, ''') DROP EXTERNAL TABLE ', @SchemaNameNoBrackets, '.', @TableNameNoBrackets, '_ext; ', @creatDedicatedExternalTableDDL, ';'
+			,@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 1 AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, ''' AND [name] = ''', @TableNameNoBrackets, '_ext'') DROP EXTERNAL TABLE ', @SchemaNameNoBrackets, '.', @TableNameNoBrackets, '_ext; ', @creatDedicatedExternalTableDDL, ';'
 			,'IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 0 AND [name] = ''', @TableNameNoBrackets, ''' AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, '''
 			) DROP TABLE ', @SchemaName, '.', @TableName, '; CREATE TABLE ', @SchemaName, '.', @TableName, ' WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX) AS SELECT * FROM ', @SchemaName, '.[', @TableNameNoBrackets, '_ext];')
 		
