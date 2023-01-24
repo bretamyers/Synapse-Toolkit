@@ -263,12 +263,12 @@ BEGIN
 	DECLARE @createDataExplorerDDL NVARCHAR(MAX)
 	DECLARE @openrowsetValue NVARCHAR(MAX)
 	DECLARE @DataSourceName NVARCHAR(MAX) = (
-			SELECT CASE WHEN LEFT(FolderPath, 5) = 'abfss' THEN CONCAT('ds_'
+			SELECT CASE WHEN LEFT(FolderPath, 5) = 'abfss' THEN CONCAT('ds_abfss_'
 				,SUBSTRING(FolderPath, CHARINDEX('@', FolderPath)+1, (CHARINDEX('.', FolderPath)-CHARINDEX('@', FolderPath)-1))
 				,'_'
 				,SUBSTRING(FolderPath, CHARINDEX('//', FolderPath)+2, (CHARINDEX('@', FolderPath)-CHARINDEX('//', FolderPath)-2))
 				)
-				ELSE CONCAT('ds_'
+				ELSE CONCAT('ds_https_'
 				, SUBSTRING(FolderPath, CHARINDEX('//', FolderPath)+2, (CHARINDEX('.',FolderPath)-9))
 				,'_'
 				,SUBSTRING(SUBSTRING(FolderPath, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+3, LEN(FolderPath)), 0, CHARINDEX('/', SUBSTRING(FolderPath, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+3, LEN(FolderPath))))
