@@ -44,7 +44,8 @@ CREATE TABLE #tables
 	!!The files must be parquet files!!
 */
 INSERT INTO #tables (SchemaName, TableName, FolderPath) VALUES 
-('dbo', 'fact_data', 'abfss://tpc@adlsenterprisebam.dfs.core.windows.net/tpcds/SourceFiles_001GB_parquet/call_center/*.parquet')
+ ('dbo', 'fact_data', 'abfss://tpc@adlsenterprisebam.dfs.core.windows.net/tpcds/SourceFiles_001GB_parquet/catalog_sales/*.parquet')
+,('dbo', 'fact_data2', 'https://adlsenterprisebam.dfs.core.windows.net/tpc/tpcds/SourceFiles_001GB_parquet/catalog_sales/*.parquet')
 ;
 
 
@@ -68,6 +69,8 @@ CREATE TABLE #ServerlessDDL
 	,ServerlessCreateTableStatsDDL NVARCHAR(MAX)
 	,ServerlessCreateViewDDL NVARCHAR(MAX)
 	,ServerlessCreateViewStatsDDL NVARCHAR(MAX)
+	,DedicatedIngestTablePolybaseDDL NVARCHAR(MAX)
+	,DedicatedIngestTableCopyIntoDDL NVARCHAR(MAX)
 	,DedicatedCreateTableDDL NVARCHAR(MAX)
 	,DedicatedCreateStatsDDL NVARCHAR(MAX)
 	,DataExplorerCreateTableDDL NVARCHAR(MAX)
@@ -231,7 +234,7 @@ BEGIN
 					END
 					) AS ColumnFullDefinitionDedicated
 				,CONCAT(c.[name], ':'
-					,CASE --WHEN TYPE_NAME(c.system_type_id) IN ('int', 'bigint', 'smallint', 'tinyint', 'bit', 'decimal', 'numeric', 'float', 'datetime2', 'date') THEN UPPER(c.system_type_name)
+					,CASE 
 						WHEN TYPE_NAME(c.system_type_id) = 'bit' THEN 'bool'
 						WHEN TYPE_NAME(c.system_type_id) IN ('datetime', 'date') THEN 'datetime'
 						WHEN TYPE_NAME(c.system_type_id) IN ('int', 'smallint', 'tinyint') THEN 'int'
@@ -239,8 +242,6 @@ BEGIN
 						WHEN TYPE_NAME(c.system_type_id) IN ('float', 'real') THEN 'real'
 						WHEN TYPE_NAME(c.system_type_id) IN ('decimal', 'numeric') THEN 'decimal'
 						ELSE 'string'
-						--WHEN TYPE_NAME(c.system_type_id) IN ('varchar', 'nvarchar') THEN 'string'
-						--ELSE CONCAT(UPPER(TYPE_NAME(c.system_type_id)), '(', a.DATATYPE_MAX, ')')
 					END
 					) AS ColumnFullDefinitionADX
 	FROM #InformationSchemaTempTable AS c
@@ -250,6 +251,9 @@ BEGIN
 	OFFSET 0 ROWS
 	;
 
+	DECLARE @SchemaNameNoBrackets NVARCHAR(MAX) = (SELECT REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''))
+	DECLARE @TableNameNoBrackets NVARCHAR(MAX) = (SELECT REPLACE(REPLACE(@TableName, ']', ''), '[', ''))
+	DECLARE @creatDedicatedExternalTableDDL NVARCHAR(MAX)
 	DECLARE @createServerlessTableDDL NVARCHAR(MAX)
 	DECLARE @createServerlessTableStatsDDL NVARCHAR(MAX)
 	DECLARE @createServerlessViewDDL NVARCHAR(MAX)
@@ -271,13 +275,24 @@ BEGIN
 				) 
 				END
 			FROM #tables WHERE RN = @cnt)
+	DECLARE @FolderPathHttps NVARCHAR(MAX) = (
+		SELECT CASE WHEN LEFT(FolderPath, 5) = 'abfss' THEN CONCAT('https://'
+			,SUBSTRING(FolderPath, CHARINDEX('@', FolderPath)+1, (CHARINDEX('.', FolderPath)-CHARINDEX('@', FolderPath)-1))
+			,'.dfs.core.windows.net/'
+			,SUBSTRING(FolderPath, CHARINDEX('//', FolderPath)+2, (CHARINDEX('@', FolderPath)-CHARINDEX('//', FolderPath)-2))
+			,SUBSTRING(FolderPath, CHARINDEX('windows.net', FolderPath)+11, LEN(FolderPath)-CHARINDEX('windows.net', FolderPath))
+			)
+			ELSE FolderPath
+			END
+		FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourceDefinition NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, 0, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2) FROM #tables WHERE RN = @cnt)
 	DECLARE @DataSourcePath NVARCHAR(MAX) = (SELECT SUBSTRING(FolderPath, CHARINDEX('/', REPLACE(FolderPath, '//', ''))+2, LEN(FolderPath)) FROM #tables WHERE RN = @cnt)
-	DECLARE @DataSourceCreateDDL NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS (SELECT 1 FROM sys.external_data_sources WHERE name = ''', @DataSourceName, ''') CREATE EXTERNAL DATA SOURCE [', @DataSourceName, '] WITH (LOCATION   = ''', @DataSourceDefinition, ''')', ''))
+	DECLARE @DataSourceCreateDDL NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS (SELECT 1 FROM sys.external_data_sources WHERE name = ''', @DataSourceName, ''') CREATE EXTERNAL DATA SOURCE [', @DataSourceName, '] WITH (LOCATION   = ''', @DataSourceDefinition, ''' /*,CREDENTIAL = dsc_managed_identity)*/ )', ''))
 	DECLARE @FileFormatCreateDDL NVARCHAR(MAX) = 'IF NOT EXISTS (SELECT 1 FROM sys.external_file_formats WHERE name = ''SynapseParquetFormat'') CREATE EXTERNAL FILE FORMAT [SynapseParquetFormat] WITH ( FORMAT_TYPE = PARQUET)'
-	DECLARE @CreateSchema NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS(SELECT 1 FROM sys.schemas WHERE [name] = ''', REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''), ''') EXEC(''CREATE SCHEMA ', REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''), ''');'))
+	DECLARE @CreateSchema NVARCHAR(MAX) = (SELECT CONCAT('IF NOT EXISTS(SELECT 1 FROM sys.schemas WHERE [name] = ''', @SchemaNameNoBrackets, ''') EXEC(''CREATE SCHEMA ', @SchemaNameNoBrackets, ''');'))
 
 	SELECT	 @createServerlessTableDDL = CONCAT('CREATE EXTERNAL TABLE ', @SchemaName, '.', @TableName, ' (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','), ') WITH ( LOCATION = ''', @DataSourcePath, ''', DATA_SOURCE = [', @DataSourceName, '], FILE_FORMAT = [SynapseParquetFormat])')
+			,@creatDedicatedExternalTableDDL = CONCAT('CREATE EXTERNAL TABLE ', @SchemaName, '.[', @TableNameNoBrackets, '_ext] (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionDedicated), ','), ') WITH ( LOCATION = ''', @DataSourcePath, ''', DATA_SOURCE = [', @DataSourceName, '], FILE_FORMAT = [SynapseParquetFormat])')
 			,@createServerlessTableStatsDDL = STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT('CREATE STATISTICS stat_', column_name, ' ON ', @Schemaname, '.', @TableName, ' (', column_name, ') WITH FULLSCAN, NORECOMPUTE')), ';')
 			,@createServerlessViewDDL = CONCAT('CREATE VIEW ', @SchemaName, '.vw', REPLACE(@TableName, '[', ''), ' AS SELECT * FROM OPENROWSET(BULK ''', @FolderPath, ''' , FORMAT=''PARQUET'') WITH (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','), ') AS r')
 			,@openrowsetValue = CONCAT('FROM OPENROWSET(BULK ''''', @FolderPath, ''''', FORMAT=''''PARQUET'''') WITH (', STRING_AGG(CONVERT(NVARCHAR(MAX), ColumnFullDefinitionServerless), ','))
@@ -293,13 +308,25 @@ BEGIN
 
 	INSERT INTO #ServerlessDDL VALUES 
 		(@SchemaName, @TableName
-		,CONCAT(@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.tables WHERE TABLE_SCHEMA = ''', REPLACE(REPLACE(@SchemaName, ']', ''), '[', ''), ''' AND TABLE_NAME = ''', REPLACE(REPLACE(@TableName, ']', ''), '[', ''), ''') DROP EXTERNAL TABLE ', @SchemaName, '.', @TableName, '; ', @createServerlessTableDDL, ';')
-		,@createServerlessTableStatsDDL
-		,CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.vw', @TableName, ''', ''V'') IS NOT NULL DROP VIEW ', @SchemaName, '.vw', @TableName, '; EXEC(''', REPLACE(@createServerlessViewDDL, '''', ''''''), ''');')
-		,@createServerlessViewStatsDDL
-		,CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.', @TableName, ''', ''U'') IS NOT NULL DROP TABLE ', @SchemaName, '.', @TableName, ';', @createDedicatedPoolTableDDL)
-		,@createDedicatedPoolStatsDDL
-		,@createDataExplorerDDL
+		,/*ServerlessCreateTableDDL*/ CONCAT(@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 1 AND SCHEMA_NAME(schema_id)= ''', @SchemaNameNoBrackets, ''' AND [name] = ''', @TableNameNoBrackets, ''') DROP EXTERNAL TABLE ', @SchemaName, '.', @TableName, '; ', @createServerlessTableDDL, ';')
+		,/*ServerlessCreateTableStatsDDL*/ @createServerlessTableStatsDDL
+		,/*ServerlessCreateViewDDL*/ CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.vw', @TableName, ''', ''V'') IS NOT NULL DROP VIEW ', @SchemaName, '.vw', @TableName, '; EXEC(''', REPLACE(@createServerlessViewDDL, '''', ''''''), ''');')
+		,/*ServerlessCreateViewStatsDDL*/ @createServerlessViewStatsDDL
+		,/*DedicatedIngestTablePolybaseDDL*/ CONCAT('/*IF NOT EXISTS (SELECT 1 FROM sys.database_scoped_credentials WHERE [name] = ''dsc_managed_identity'') CREATE DATABASE SCOPED CREDENTIAL dsc_managed_identity WITH IDENTITY = ''MANAGED IDENTITY'';*/'
+			,@FileFormatCreateDDL, ';', @DataSourceCreateDDL, ';', @CreateSchema, ' IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external WHERE SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, ''' AND [name] = ''', @TableNameNoBrackets, ''') DROP EXTERNAL TABLE ', @SchemaNameNoBrackets, '.', @TableNameNoBrackets, '_ext; ', @creatDedicatedExternalTableDDL, ';'
+			,'IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 0 AND [name] = ''', @TableNameNoBrackets, ''' AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, '''
+			) DROP TABLE ', @SchemaName, '.', @TableName, '; CREATE TABLE ', @SchemaName, '.', @TableName, ' WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX) AS SELECT * FROM ', @SchemaName, '.[', @TableNameNoBrackets, '_ext];')
+		
+		,/*DedicatedIngestTableCopyIntoDDL*/ CONCAT(@CreateSchema
+			,'IF EXISTS(SELECT 1 FROM sys.tables WHERE is_external = 0 AND [name] = ''', @TableNameNoBrackets, ''' AND SCHEMA_NAME(schema_id) = ''', @SchemaNameNoBrackets, '''
+			) DROP TABLE ', @SchemaName, '.', @TableName, '; ', @createDedicatedPoolTableDDL
+			,'; COPY INTO ', @SchemaName, '.', @TableName
+				,' FROM ''', @FolderPathHttps, ''' WITH (FILE_TYPE = ''PARQUET'',MAXERRORS = 0,COMPRESSION = ''snappy'',IDENTITY_INSERT = ''OFF'',CREDENTIAL = (IDENTITY = ''Managed Identity'')
+			);')
+		
+		,/*DedicatedCreateTableDDL*/ CONCAT(@CreateSchema, ' IF OBJECT_ID(''', @SchemaName, '.', @TableName, ''', ''U'') IS NOT NULL DROP TABLE ', @SchemaName, '.', @TableName, ';', @createDedicatedPoolTableDDL)
+		,/*@createDedicatedPoolStatsDDL*/ @createDedicatedPoolStatsDDL
+		,/*DataExplorerCreateTableDDL*/ @createDataExplorerDDL
 		)
 
 	SET @cnt = @cnt + 1
